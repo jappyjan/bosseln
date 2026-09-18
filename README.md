@@ -62,7 +62,7 @@ src/game/      Domänenlogik, komplett UI-frei (Regeln, Wertung, Partyspiel)
   engine.ts    createGame, derive()  — leitet aus Events alle Summen ab
   stats.ts     Endstand-Statistiken + Textfassung für Teilen
   storage.ts   localStorage, Prefs, JSON-Export/Import, Browser-Sprachwahl
-  sync.ts      Gun.js-Anbindung (lazy geladen)
+  sync.ts      MQTT-over-WebSocket-Sharing (lazy geladen)
 src/i18n/      de.ts (Quelle), en.ts (typgeprüft), Provider + useT()
 src/state/     store.tsx — Event-Append, Undo, Toasts, Sync-Verdrahtung
 src/components/  ui.tsx (Buttons, Sheets, Dialoge), Nav.tsx, sheets.tsx
