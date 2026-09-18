@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { BottomNav } from './components/Nav'
-import { PromptProvider, ToastHost } from './components/ui'
+import { Button, PromptProvider, ToastHost } from './components/ui'
 import { guessLang } from './game/storage'
 import { I18nProvider, useI18n } from './i18n'
 import { StoreProvider, useStore } from './state/store'
@@ -46,6 +46,26 @@ class ErrorBoundary extends Component<
   }
 }
 
+function JoinOverlay() {
+  const { t } = useI18n()
+  const { joining, joinError, prefs, cancelJoin } = useStore()
+  if (!joining) return null
+  return (
+    <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-surface/97 px-6 text-center">
+      <span className="text-5xl">{joinError ? '🤔' : '📡'}</span>
+      <h2 className="text-xl font-black">{t('join.title', { code: prefs.syncRoom ?? '' })}</h2>
+      <p className="max-w-sm text-sm font-semibold text-sub">
+        {joinError ? t('join.timeout') : t('join.waiting')}
+      </p>
+      <div className="mt-2 w-full max-w-xs">
+        <Button block variant="ghost" onClick={cancelJoin}>
+          {t('common.cancel')}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function Shell() {
   const { ready, game, screen } = useStore()
 
@@ -57,7 +77,13 @@ function Shell() {
     )
   }
 
-  if (!game) return <SetupScreen />
+  if (!game)
+    return (
+      <>
+        <SetupScreen />
+        <JoinOverlay />
+      </>
+    )
 
   return (
     <>

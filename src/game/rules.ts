@@ -112,9 +112,4 @@ export const newTeam = (index: number, name?: string): Team => ({
 
 export const ruleLabel = (rule: PenaltyRule): string => rule.label ?? rule.labelKey ?? rule.id
 
-/**
- * Verified reachable public Gun relay. Users can add more (or their own peer)
- * in Settings → Device sync. Dead default peers only cause reconnect noise,
- * so we ship the one that actually answers.
- */
-export const DEFAULT_RELAYS = ['https://relay.peer.ooo/gun']
+

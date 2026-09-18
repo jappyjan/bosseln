@@ -42,10 +42,16 @@ npx tsc -p tsconfig.json --noEmit   # Typecheck
   fehlende Übersetzung ist ein Compile-Fehler.
 - **Persistenz:** localStorage, übersteht Reload/App-Neustart. JSON-Export/Import
   in den Einstellungen, „Spiel zurücksetzen“ mit Rückfrage.
-- **Geräte-Sync (optional):** Gun.js über öffentliche Relays. Das lokale Spiel bleibt
-  Master, es werden nur unveränderliche Events getauscht → konfliktfreies Merge,
-  offline weiterspielen und später nachtragen. Relay-Liste und Raumcode in den
-  Einstellungen. Öffentliche Relays sind öffentlich: nur Namen eintragen, die man teilen will.
+- **Teilen mit Spiel-Code:** Ein Tipp auf 📤 im Punkte-Screen erzeugt einen Code (z. B.
+  `MX5D69`). Die anderen öffnen den geteilten Link oder tippen den Code ein — sie sehen
+  dann **dasselbe Spiel** auf ihrem eigenen Handy: gleiche Teams, gleiche Würfe, live.
+  Am Ende der Strecke braucht niemand einen Zettel.
+  Technik: MQTT über WebSocket (freie öffentliche Broker, kein Konto, kein eigener Server).
+  Der komplette Spielstand liegt als *retained message* im Raum, deshalb hat ein später
+  beitretendes Gerät den Stand sofort. Übertragen werden nur unveränderliche Events →
+  konfliktfreier Merge, und ohne Empfang läuft alles lokal weiter, bis wieder Netz da ist.
+  Gemessen: Beitritt < 0,5 s, Live-Abgleich ~0,7 s in beide Richtungen, Nachholen nach
+  Flugmodus ~0,7 s. Broker-Liste in den Einstellungen (erster erreichbarer gewinnt).
 
 ## Architektur
 
@@ -80,8 +86,8 @@ Wertungsmodi (Einstellungen, jederzeit umstellbar, als Event protokolliert):
   kein Exen, keine Steigerung. Trinken beeinflusst nie die Wertung.
 - Offline getestet mit **abgeschaltetem Server** (Service Worker liefert aus dem
   Workbox-Precache).
-- Von den gängigen kostenlosen Gun-Relays antwortet aktuell nur `https://relay.peer.ooo/gun`;
-  weitere/adere Relais können in den Einstellungen ergänzt werden.
+- Geteilt wird über öffentliche MQTT-Broker (Standard: HiveMQ, Fallback: EMQX). Die Räume
+  sind offen: nur Namen eintragen, die man teilen will, und den Code nicht öffentlich posten.
 - Kein offizielles Boßeln-Regelwerk, keine Verbandswertung — bewusst vereinfacht.
 
 ## Deployment
@@ -114,10 +120,17 @@ npx playwright install chromium
 cd .. && npm run build && npm run preview &   # http://127.0.0.1:4173
 
 cd qa
-node qa.mjs        # 48 Funktionstests + Screenshots nach ./shots
-node layout.mjs    # horizontaler Überlauf + Touch-Targets ≥ 44px
-node offline.mjs   # Server vorher stoppen: beweist Start aus dem SW-Cache
+node qa.mjs                   # 48 Funktionstests + Screenshots nach ./shots
+node layout.mjs               # horizontaler Überlauf + Touch-Targets ≥ 44px
+node offline.mjs              # Server vorher stoppen: beweist Start aus dem SW-Cache
+node live-offline.mjs         # Flugmodus gegen die Live-Domain (Service Worker)
+node sync-share.mjs           # zwei Geräte: Code teilen, beitreten, live mitzählen,
+node mqtt-broker-probe.mjs    # welcher öffentliche Broker trägt retained + live
 ```
+
+`sync-share.mjs` startet zwei unabhängige Browser-Kontexte (= zwei Handys) und prüft:
+Code erzeugen, per Link beitreten, identische Teams/Stände, Live-Sync in beide
+Richtungen, Gerätezahl, Offline-Weiterzählen und automatisches Nachholen.
 
 In dieser Umgebung lagen die Playwright-Browser unter
 `/opt/data/pw-browsers` (dann `PLAYWRIGHT_BROWSERS_PATH` setzen) — Standard ist

@@ -13,6 +13,7 @@ import {
   createGame,
   derive,
   makeEvent,
+  mergeGames,
   type NewGameConfig,
 } from '../game/engine'
 import { PARTY_CARDS, type PartyCard } from '../game/rules'
@@ -26,7 +27,7 @@ import {
   saveGame,
   savePrefs,
 } from '../game/storage'
-import { startSync, type SyncHandle, type SyncStatus } from '../game/sync'
+import { roomCode, shareLink, startSync, stateRev, type SyncHandle, type SyncStatus } from '../game/sync'
 import type {
   Derived,
   Game,
@@ -115,13 +116,21 @@ interface StoreValue {
   importGame: (text: string) => boolean
   haptic: (kind?: 'light' | 'medium' | 'heavy') => void
   syncStatus: SyncStatus
-  syncMismatch: string | null
+  /** code + link of the shared game, null when sharing is off */
+  shareUrl: string | null
+  devices: number
+  joining: boolean
+  joinError: boolean
+  joinGame: (code: string) => void
+  cancelJoin: () => void
+  enableSharing: () => void
+  leaveSync: () => void
   lastEvent: GameEvent | null
 }
 
 const StoreCtx = createContext<StoreValue | null>(null)
 
-const OFF_STATUS: SyncStatus = { state: 'off', peers: 0, room: '', remoteEvents: 0 }
+const OFF_STATUS: SyncStatus = { state: 'off', broker: '', room: '', devices: 1 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false)
@@ -130,7 +139,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [screen, setScreen] = useState<Screen>('score')
   const [toast, setToast] = useState<Toast | null>(null)
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(OFF_STATUS)
-  const [syncMismatch, setSyncMismatch] = useState<string | null>(null)
+  const [joining, setJoining] = useState(false)
+  const [joinError, setJoinError] = useState(false)
+  const publishedRev = useRef('')
+  const adoptRef = useRef(false)
 
   const syncRef = useRef<SyncHandle | null>(null)
   const toastTimer = useRef<number | null>(null)
@@ -149,6 +161,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (stored) {
       gameRef.current = stored
       setGame(stored)
+    }
+    // a shared link carries the game code: ?join=ABC123 (or #join=ABC123)
+    const fromQuery = new URLSearchParams(location.search).get('join')
+    const fromHash = /join=([A-Za-z0-9]+)/.exec(location.hash)?.[1]
+    const raw = (fromQuery ?? fromHash ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
+    if (raw.length >= 4) {
+      adoptRef.current = true
+      setJoining(true)
+      setPrefsState((cur) => ({ ...cur, syncRoom: raw, syncEnabled: true }))
+      window.history.replaceState({}, '', location.pathname + location.hash.replace(/[#&]?join=[^&]*/i, ''))
     }
     setReady(true)
   }, [])
@@ -427,32 +449,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [showToast],
   )
 
-  /* ----------------------------------------------------------------- sync */
+  /* ---------------------------------------------------------------- share
+     Cross-device sharing over MQTT (free public brokers, no account).
+     The room code *is* the game: the state sits as a retained message on the
+     broker, so a phone that joins later gets the full game instantly. Only
+     immutable events are exchanged, which keeps the merge conflict-free; the
+     local copy stays master and offline play keeps working.
+  ------------------------------------------------------------------------ */
   useEffect(() => {
     const room = prefs.syncRoom
-    if (!ready || !prefs.syncEnabled || !room || !game?.id) {
+    if (!ready || !prefs.syncEnabled || !room) {
       syncRef.current?.destroy()
       syncRef.current = null
       setSyncStatus(OFF_STATUS)
       return
     }
     let cancelled = false
-    setSyncStatus({ state: 'connecting', peers: 0, room, remoteEvents: 0 })
+    setSyncStatus({ state: 'connecting', broker: '', room, devices: 1 })
     startSync({
       room,
-      relays: prefs.relays,
-      onRemoteEvent: (ev) => {
+      brokers: prefs.brokers,
+      deviceId: prefs.deviceId,
+      onRemoteState: (remote) => {
         setGame((cur) => {
-          if (!cur || cur.events.some((e) => e.id === ev.id)) return cur
-          return { ...cur, events: [...cur.events, ev] }
+          const adopt = adoptRef.current
+          adoptRef.current = false
+          const result = adopt
+            ? { game: remote, changed: true, adopted: cur ? cur.id !== remote.id : false }
+            : mergeGames(cur, remote)
+          if (!result.changed) return cur
+          publishedRev.current = stateRev(result.game)
+          if (result.adopted) showToast('toast.gameAdopted')
+          return result.game
         })
       },
-      onRemoteMeta: (meta) => {
-        const local = gameRef.current
-        if (meta.gameId && local && meta.gameId !== local.id) setSyncMismatch(meta.name ?? '')
-        else setSyncMismatch(null)
+      onStatus: (status) => {
+        setSyncStatus(status)
+        if (status.state === 'live') setJoinError(false)
       },
-      onStatus: setSyncStatus,
     })
       .then((handle) => {
         if (cancelled) {
@@ -461,40 +495,74 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         syncRef.current = handle
         const g = gameRef.current
-        if (!g) return
-        g.events.forEach((ev) => handle.pushEvent(ev))
-        handle.pushMeta({
-          gameId: g.id,
-          name: g.name,
-          route: g.route,
-          teams: g.teams.length,
-          updatedAt: g.events.length ? g.events[g.events.length - 1].at : g.createdAt,
-        })
+        if (g) handle.publishState(g)
       })
-      .catch(() => setSyncStatus({ ...OFF_STATUS, state: 'error', room }))
+      .catch((err) => {
+        setSyncStatus({ state: 'error', broker: '', room, devices: 1, error: String(err) })
+      })
 
     return () => {
       cancelled = true
       syncRef.current?.destroy()
       syncRef.current = null
     }
-  }, [ready, prefs.syncEnabled, prefs.syncRoom, prefs.relays, game?.id])
+  }, [ready, prefs.syncEnabled, prefs.syncRoom, prefs.brokers, prefs.deviceId, showToast])
 
-  /** push freshly created events into the room */
+  /** publish local changes (throttled) so the other phones follow along */
   useEffect(() => {
     const handle = syncRef.current
     if (!handle || !game) return
-    game.events.forEach((ev) => handle.pushEvent(ev))
-    if (game.events.length) {
-      handle.pushMeta({
-        gameId: game.id,
-        name: game.name,
-        route: game.route,
-        teams: game.teams.length,
-        updatedAt: game.events[game.events.length - 1].at,
-      })
-    }
+    if (stateRev(game) === publishedRev.current) return
+    const timer = window.setTimeout(() => handle.publishState(game), 350)
+    return () => window.clearTimeout(timer)
   }, [game])
+
+  /** joining a code: wait for the host's state, then say so honestly */
+  useEffect(() => {
+    if (!joining || game) return
+    const timer = window.setTimeout(() => setJoinError(true), 10000)
+    return () => window.clearTimeout(timer)
+  }, [joining, game])
+
+  useEffect(() => {
+    if (joining && game) setJoining(false)
+  }, [joining, game])
+
+  /* ------------------------------------------------------- share actions */
+  const joinGame = useCallback(
+    (raw: string) => {
+      const code = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
+      if (code.length < 4) {
+        showToast('setup.joinInvalid')
+        return
+      }
+      adoptRef.current = true
+      setJoinError(false)
+      setJoining(true)
+      setPrefs({ syncRoom: code, syncEnabled: true })
+      showToast('toast.joining', { code })
+    },
+    [setPrefs, showToast],
+  )
+
+  const cancelJoin = useCallback(() => {
+    setJoining(false)
+    setJoinError(false)
+    setPrefs({ syncEnabled: false, syncRoom: undefined })
+  }, [setPrefs])
+
+  const enableSharing = useCallback(() => {
+    const code = prefsRef.current.syncRoom ?? roomCode()
+    setPrefs({ syncRoom: code, syncEnabled: true })
+    showToast('toast.sharing', { code })
+  }, [setPrefs, showToast])
+
+  const leaveSync = useCallback(() => {
+    setPrefs({ syncEnabled: false })
+    setJoining(false)
+    setJoinError(false)
+    showToast('toast.sharingOff')
+  }, [setPrefs, showToast])
 
   const value = useMemo<StoreValue>(
     () => ({
@@ -534,7 +602,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       importGame,
       haptic,
       syncStatus,
-      syncMismatch,
+      shareUrl: prefs.syncRoom && prefs.syncEnabled ? shareLink(prefs.syncRoom) : null,
+      devices: syncStatus.devices,
+      joining,
+      joinError,
+      joinGame,
+      cancelJoin,
+      enableSharing,
+      leaveSync,
       lastEvent,
     }),
     [
@@ -570,7 +645,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       importGame,
       haptic,
       syncStatus,
-      syncMismatch,
+      prefs.syncRoom,
+      prefs.syncEnabled,
+      joining,
+      joinError,
+      joinGame,
+      cancelJoin,
+      enableSharing,
+      leaveSync,
       lastEvent,
     ],
   )

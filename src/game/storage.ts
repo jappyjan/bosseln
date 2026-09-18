@@ -1,4 +1,5 @@
-import { DEFAULT_PENALTY_RULES, DEFAULT_RELAYS } from './rules'
+import { DEFAULT_PENALTY_RULES, uid } from './rules'
+import { DEFAULT_BROKERS } from './sync'
 import { defaultSettings } from './engine'
 import type { Game, Lang, Prefs } from './types'
 
@@ -8,8 +9,9 @@ const PREFS_KEY = 'bosseln:prefs:v1'
 export const defaultPrefs = (): Prefs => ({
   theme: 'light',
   textScale: 'normal',
-  relays: DEFAULT_RELAYS,
+  brokers: DEFAULT_BROKERS,
   syncEnabled: false,
+  deviceId: uid(),
 })
 
 export function guessLang(): Lang {
@@ -28,12 +30,15 @@ export function loadPrefs(): Prefs {
   try {
     const raw = localStorage.getItem(PREFS_KEY)
     if (!raw) return defaultPrefs()
-    const parsed = JSON.parse(raw) as Partial<Prefs>
+    const parsed = JSON.parse(raw) as Partial<Prefs> & { relays?: string[] }
     const base = defaultPrefs()
+    // `relays` was the Gun-era key; keep such installs working
+    const brokers = parsed.brokers?.length ? parsed.brokers : base.brokers
     return {
       ...base,
       ...parsed,
-      relays: parsed.relays?.length ? parsed.relays : base.relays,
+      brokers,
+      deviceId: parsed.deviceId ?? base.deviceId,
     }
   } catch {
     return defaultPrefs()

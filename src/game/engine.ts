@@ -233,6 +233,54 @@ export const playerName = (game: Game, playerId?: string): string | undefined =>
   return undefined
 }
 
+export interface MergeResult {
+  game: Game
+  changed: boolean
+  /** the configuration now comes from the remote side */
+  adopted: boolean
+}
+
+const configOf = (g: Game) => [g.name, g.route, g.teams, g.penaltyRules, g.settings]
+
+/**
+ * Merge a state that arrived from another device.
+ *
+ * Events are immutable and id-unique, so the merge is a plain union — that is
+ * what makes sharing conflict-free. Only the *configuration* (teams, players,
+ * rules) has to be owned by somebody: the game created first wins, so joining a
+ * code always shows the host's teams.
+ */
+export function mergeGames(local: Game | null, remote: Game): MergeResult {
+  if (!local) return { game: remote, changed: true, adopted: true }
+
+  if (local.id === remote.id) {
+    const known = new Set(local.events.map((e) => e.id))
+    const incoming = remote.events.filter((e) => !known.has(e.id))
+    const configChanged = JSON.stringify(configOf(local)) !== JSON.stringify(configOf(remote))
+    if (!incoming.length && !configChanged) return { game: local, changed: false, adopted: false }
+    // same game: the room is the truth for the configuration, events are unioned
+    return {
+      game: { ...remote, events: sortEvents([...local.events, ...incoming]) },
+      changed: true,
+      adopted: false,
+    }
+  }
+
+  const remoteOwns = remote.createdAt <= local.createdAt
+  const owner = remoteOwns ? remote : local
+  const other = remoteOwns ? local : remote
+  const teamIds = new Set(owner.teams.map((t) => t.id))
+  const foreign = other.events.filter(
+    (e) => !owner.events.some((o) => o.id === e.id) && (!e.teamId || teamIds.has(e.teamId)),
+  )
+  const changed = foreign.length > 0 || owner.id !== local.id
+  return {
+    game: { ...owner, events: sortEvents([...owner.events, ...foreign]) },
+    changed,
+    adopted: owner.id !== local.id,
+  }
+}
+
 /** the team with the highest score, used by a few party cards */
 export function trailingTeam(d: Derived, mode: ScoringMode): TeamState | undefined {
   const ranking = rankTeams(d.teams, mode)

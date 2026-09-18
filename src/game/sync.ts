@@ -1,142 +1,261 @@
 /**
- * Optional cross-device sync through Gun.js (free, community hosted relays —
- * nothing to self-host). The local game stays the source of truth: sync only
- * exchanges immutable events, which merge without conflicts.
+ * Cross-device sharing via MQTT over WebSocket.
  *
- * Gun.js is loaded lazily so the offline bundle stays lean.
+ * Why MQTT instead of Gun: public Gun relays measured here either dropped
+ * messages between peers or never delivered the game metadata, while public
+ * MQTT brokers provide retained messages — which is exactly what "join with a
+ * code" needs: the broker hands the newest game state to every late subscriber.
+ *
+ * Design:
+ * - one room per game code, topics `bosseln/v1/<code>/state` (retained) and
+ *   `bosseln/v1/<code>/presence/<deviceId>` (retained, heartbeat)
+ * - published payload is the whole game (teams, rules, events). Merging is a
+ *   union of immutable events, so no conflicts and no ordering issues.
+ * - a revision hash of the event-id set prevents echo loops between devices.
+ * - offline stays fully local; on reconnect the retained state is applied again.
+ *
+ * mqtt.js is loaded lazily so the offline bundle stays small.
  */
 
-import type { GameEvent } from './types'
+import type { Game } from './types'
+
+/** Public brokers, free and account-less. Tried in order. */
+export const DEFAULT_BROKERS = [
+  'wss://broker.hivemq.com:8884/mqtt',
+  'wss://broker.emqx.io:8084/mqtt',
+]
 
 export interface SyncStatus {
   state: 'off' | 'connecting' | 'live' | 'error'
-  peers: number
+  broker: string
   room: string
-  remoteEvents: number
-  lastRemoteAt?: string
+  devices: number
+  lastStateAt?: string
   error?: string
 }
 
-export interface SyncMeta {
-  gameId?: string
-  name?: string
-  route?: string
-  updatedAt?: string
-  teams?: number
-}
-
 export interface SyncHandle {
-  pushEvent(ev: GameEvent): void
-  pushMeta(meta: SyncMeta): void
+  publishState(game: Game): void
   destroy(): void
 }
 
 interface StartOpts {
   room: string
-  relays: string[]
-  onRemoteEvent: (ev: GameEvent) => void
-  onRemoteMeta?: (meta: SyncMeta) => void
+  brokers: string[]
+  deviceId: string
+  /** called with every *newer* remote state; `from` is the sending device */
+  onRemoteState: (game: Game, meta: { rev: string; from: string }) => void
   onStatus: (s: SyncStatus) => void
 }
 
-const clean = (data: Record<string, unknown>): Record<string, unknown> => {
-  const { _: meta, ...rest } = data
-  void meta
-  return rest
+interface StatePayload {
+  app: 'bosseln'
+  v: 1
+  rev: string
+  from: string
+  at: string
+  game: Game
 }
 
+const stateTopic = (room: string) => `bosseln/v1/${room}/state`
+const presenceTopic = (room: string, device: string) => `bosseln/v1/${room}/presence/${device}`
+const presenceWildcard = (room: string) => `bosseln/v1/${room}/presence/+`
+
+/** stable revision of a game: same events (regardless of order) → same revision */
+export function stateRev(game: Game): string {
+  const ids = game.events.map((e) => e.id).sort()
+  let hash = 5381
+  for (const chunk of ids.join('|')) hash = ((hash << 5) + hash + chunk.charCodeAt(0)) | 0
+  return `${ids.length}x${(hash >>> 0).toString(36)}`
+}
+
+export const roomCode = (): string => {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const bytes = new Uint8Array(6)
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b, i) => alphabet[(b || i * 37) % alphabet.length]).join('')
+}
+
+export const shareLink = (code: string): string =>
+  `${location.origin}${location.pathname}?join=${encodeURIComponent(code)}`
+
 export async function startSync(opts: StartOpts): Promise<SyncHandle> {
-  const status: SyncStatus = { state: 'connecting', peers: 0, room: opts.room, remoteEvents: 0 }
+  const status: SyncStatus = { state: 'connecting', broker: '', room: opts.room, devices: 1 }
   const emit = () => opts.onStatus({ ...status })
 
-  const gun = await import('gun')
-  const Gun = (gun as unknown as { default: unknown }).default ?? gun
-  const root = (Gun as (o: Record<string, unknown>) => any)({
-    peers: opts.relays,
-    localStorage: false,
-    radisk: false,
-    multicast: false,
-    axe: false,
-    // keep the noise low; we never drill into a single event node
-    wait: 60,
-  })
+  const mqttModule = await import('mqtt')
+  const mqtt = ((mqttModule as unknown as { default?: unknown }).default ?? mqttModule) as {
+    connect: (url: string, o?: Record<string, unknown>) => any
+  }
 
-  const room = root.get('bosseln-v1').get(`room-${opts.room}`)
-  const eventsNode = room.get('events')
+  const brokers = opts.brokers.filter(Boolean)
+  if (!brokers.length) throw new Error('no broker configured')
 
-  root.on('hi', () => {
-    status.peers += 1
-    status.state = 'live'
+  const seenDevices = new Map<string, number>()
+  let client: any = null
+  let publishedRev = ''
+  let destroyed = false
+  /** kept so the newest state can be (re)published the moment the link is up */
+  let lastGame: Game | null = null
+
+  const publishNow = () => {
+    if (!client?.connected || !lastGame) return
+    const rev = stateRev(lastGame)
+    publishedRev = rev
+    const payload: StatePayload = {
+      app: 'bosseln',
+      v: 1,
+      rev,
+      from: opts.deviceId,
+      at: new Date().toISOString(),
+      game: lastGame,
+    }
+    client.publish(stateTopic(opts.room), JSON.stringify(payload), { qos: 1, retain: true })
+  }
+
+  const url = (i: number) => brokers[i % brokers.length]
+
+  const connect = (index: number) => {
+    const broker = url(index)
+    status.broker = broker
+    status.state = 'connecting'
     emit()
-  })
-  root.on('bye', () => {
-    status.peers = Math.max(0, status.peers - 1)
-    status.state = status.peers > 0 ? 'live' : 'connecting'
-    emit()
-  })
+    const c = mqtt.connect(broker, {
+      clientId: `bosseln-${opts.deviceId}-${Math.random().toString(16).slice(2, 8)}`,
+      keepalive: 30,
+      reconnectPeriod: 4000,
+      connectTimeout: 8000,
+      clean: true,
+    })
+    client = c
 
-  const pushed = new Set<string>()
+    c.on('connect', () => {
+      status.state = 'live'
+      status.error = undefined
+      emit()
+      c.subscribe([stateTopic(opts.room), presenceWildcard(opts.room)], { qos: 1 })
+      announce()
+      // (re)publish the current game: covers the first connect and every reconnect
+      publishNow()
+    })
 
-  room.get('meta').on((data: Record<string, unknown> | null) => {
-    if (!data) return
-    const meta = clean(data) as SyncMeta
-    if (meta.updatedAt) status.lastRemoteAt = meta.updatedAt
-    opts.onRemoteMeta?.(meta)
-    emit()
-  })
+    c.on('reconnect', () => {
+      status.state = 'connecting'
+      emit()
+    })
 
-  eventsNode.map().on((data: Record<string, unknown> | null, key: string) => {
-    if (!data || typeof data !== 'object') return
-    const ev = clean(data) as unknown as GameEvent
-    if (!ev.id || !ev.type || !ev.at) return
-    if (key && ev.id !== key) return
-    status.remoteEvents += 1
-    status.state = 'live'
-    opts.onRemoteEvent(ev)
+    c.on('close', () => {
+      status.state = status.state === 'error' ? 'error' : 'connecting'
+      emit()
+    })
+
+    c.on('error', (err: Error) => {
+      status.error = err?.message ?? 'connection error'
+      status.state = 'error'
+      emit()
+      // rotate to the next broker on the first failure
+      if (!destroyed) {
+        const next = index + 1
+        if (next < brokers.length) {
+          try {
+            c.end(true)
+          } catch {
+            /* ignore */
+          }
+          connect(next)
+        }
+      }
+    })
+
+    c.on('message', (topic: string, payload: Uint8Array) => {
+      let data: unknown
+      try {
+        data = JSON.parse(new TextDecoder().decode(payload))
+      } catch {
+        return
+      }
+      if (topic.startsWith(presenceWildcard(opts.room).slice(0, -1))) {
+        const device = topic.split('/').pop() ?? ''
+        if (!device) return
+        const at = typeof (data as { at?: number }).at === 'number' ? (data as { at: number }).at : Date.now()
+        if (device === opts.deviceId) {
+          // our own heartbeat, not part of the peer count
+        } else if (at === 0) {
+          seenDevices.delete(device)
+        } else {
+          seenDevices.set(device, at)
+        }
+        const now = Date.now()
+        const alive = [...seenDevices.values()].filter((t) => now - t < 120000).length
+        status.devices = alive + 1
+        emit()
+        return
+      }
+
+      const state = data as StatePayload
+      if (!state || state.app !== 'bosseln' || !state.game || !state.rev) return
+      if (state.from === opts.deviceId) return
+      if (state.rev === publishedRev || state.rev === lastSeenRev) {
+        lastSeenRev = state.rev
+        return
+      }
+      lastSeenRev = state.rev
+      publishedRev = state.rev
+      status.lastStateAt = state.at
+      status.state = 'live'
+      emit()
+      opts.onRemoteState(state.game, { rev: state.rev, from: state.from })
+    })
+  }
+
+  let lastSeenRev = ''
+
+  const announce = () => {
+    if (!client?.connected) return
+    client.publish(presenceTopic(opts.room, opts.deviceId), JSON.stringify({ at: Date.now() }), {
+      qos: 1,
+      retain: true,
+    })
+  }
+
+  connect(0)
+  const heartbeat = setInterval(() => {
+    const now = Date.now()
+    for (const [device, at] of seenDevices) if (now - at > 120000) seenDevices.delete(device)
+    announce()
+    status.devices = [...seenDevices.values()].filter((t) => now - t < 120000).length + 1
     emit()
-  })
+  }, 30000)
 
   emit()
 
   return {
-    pushEvent(ev: GameEvent) {
-      if (pushed.has(ev.id)) return
-      pushed.add(ev.id)
-      try {
-        eventsNode.get(ev.id).put(ev)
-      } catch (err) {
-        status.state = 'error'
-        status.error = String(err)
-        emit()
-      }
+    publishState(game: Game) {
+      lastGame = game
+      const rev = stateRev(game)
+      if (rev === publishedRev) return
+      publishedRev = rev
+      publishNow()
     },
-    pushMeta(meta: SyncMeta) {
+    destroy() {
+      destroyed = true
+      clearInterval(heartbeat)
       try {
-        room.get('meta').put(meta)
+        client?.publish?.(presenceTopic(opts.room, opts.deviceId), JSON.stringify({ at: 0 }), {
+          qos: 1,
+          retain: true,
+        })
       } catch {
         /* ignore */
       }
-    },
-    destroy() {
       try {
-        root.off?.()
+        client?.end?.(true)
       } catch {
         /* ignore */
       }
       status.state = 'off'
-      status.peers = 0
+      status.devices = 1
       emit()
     },
   }
-}
-
-export const randomRoom = (): string => {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  let out = ''
-  const bytes = new Uint8Array(6)
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) crypto.getRandomValues(bytes)
-  for (let i = 0; i < 6; i += 1) {
-    out += alphabet[(bytes[i] || Math.floor(Math.random() * 255)) % alphabet.length]
-  }
-  return out
 }

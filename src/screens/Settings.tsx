@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react'
 import { Button, Card, Chip, ConfirmDialog, Field, SectionTitle, Segmented, Stepper, Toggle, cn } from '../components/ui'
+import { ShareSheet } from '../components/ShareSheet'
 import { CARD_CATEGORIES } from '../game/rules'
 import { uid } from '../game/rules'
 import { downloadJson } from '../game/storage'
-import { randomRoom } from '../game/sync'
+import { roomCode } from '../game/sync'
 import { useI18n, type TranslationKey } from '../i18n'
 import { useStore } from '../state/store'
 import type { CardCategory, ScoringMode } from '../game/types'
@@ -11,7 +12,7 @@ import type { CardCategory, ScoringMode } from '../game/types'
 const VERSION = '1.0.0'
 
 export function SettingsScreen() {
-  const { t, manual, setLang } = useI18n()
+  const { t, manual, setLang, formatTime } = useI18n()
   const {
     game,
     prefs,
@@ -24,13 +25,13 @@ export function SettingsScreen() {
     resetGame,
     importGame,
     syncStatus,
-    syncMismatch,
     showToast,
   } = useStore()
 
   const [resetOpen, setResetOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   const [newRule, setNewRule] = useState({ label: '', points: 1, drink: false })
-  const [relayText, setRelayText] = useState(() => prefs.relays.join(', '))
+  const [brokerText, setBrokerText] = useState(() => prefs.brokers.join(', '))
   const fileRef = useRef<HTMLInputElement | null>(null)
 
   if (!game) return null
@@ -288,13 +289,16 @@ export function SettingsScreen() {
       {/* --------------------------------------------------------------- sync */}
       <SectionTitle hint={t('settings.syncHint')}>{t('settings.sync')}</SectionTitle>
       <Card className="space-y-3 border-2">
+        <Button block variant="primary" onClick={() => setShareOpen(true)}>
+          📤 {t('share.title')}
+        </Button>
         <Toggle
           label={t('settings.syncEnable')}
           checked={prefs.syncEnabled}
           onChange={(v) =>
             setPrefs({
               syncEnabled: v,
-              syncRoom: prefs.syncRoom ?? randomRoom(),
+              syncRoom: prefs.syncRoom ?? roomCode(),
             })
           }
         />
@@ -306,7 +310,7 @@ export function SettingsScreen() {
           onChange={(e) => setPrefs({ syncRoom: e.target.value.toUpperCase().replace(/\s+/g, '') })}
         />
         <div className="flex gap-2">
-          <Button block size="sm" onClick={() => setPrefs({ syncRoom: randomRoom() })}>
+          <Button block size="sm" onClick={() => setPrefs({ syncRoom: roomCode() })}>
             🔄 {t('settings.syncNewRoom')}
           </Button>
           <Button
@@ -328,24 +332,25 @@ export function SettingsScreen() {
         <div className="grid grid-cols-2 gap-2 rounded-2xl bg-surface2 p-3 text-sm">
           <span className="text-sub">{t('settings.syncStatus')}</span>
           <span className="text-right font-bold">{t(statusKey)}</span>
-          <span className="text-sub">{t('settings.syncPeers')}</span>
-          <span className="tnum text-right font-bold">{syncStatus.peers}</span>
-          <span className="text-sub">{t('settings.syncEvents')}</span>
-          <span className="tnum text-right font-bold">{syncStatus.remoteEvents}</span>
+          <span className="text-sub">{t('settings.syncDevices')}</span>
+          <span className="tnum text-right font-bold">{syncStatus.devices}</span>
+          <span className="text-sub">{t('settings.syncBroker')}</span>
+          <span className="truncate text-right font-bold">
+            {syncStatus.broker ? syncStatus.broker.replace(/^wss?:\/\//, '').split('/')[0] : '—'}
+          </span>
+          <span className="text-sub">{t('settings.syncLast')}</span>
+          <span className="text-right font-bold">
+            {syncStatus.lastStateAt ? formatTime(syncStatus.lastStateAt) : '—'}
+          </span>
         </div>
-        {syncMismatch ? (
-          <p className="rounded-2xl border-2 border-red-500 bg-red-50 px-3 py-2 text-xs font-bold text-red-900">
-            {t('settings.syncWrongGame', { name: syncMismatch })}
-          </p>
-        ) : null}
         <Field
-          label={t('settings.relays')}
-          hint={t('settings.relaysHint')}
-          value={relayText}
-          onChange={(e) => setRelayText(e.target.value)}
+          label={t('settings.brokers')}
+          hint={t('settings.brokersHint')}
+          value={brokerText}
+          onChange={(e) => setBrokerText(e.target.value)}
           onBlur={() =>
             setPrefs({
-              relays: relayText
+              brokers: brokerText
                 .split(',')
                 .map((x) => x.trim())
                 .filter(Boolean),
@@ -362,6 +367,8 @@ export function SettingsScreen() {
         <p className="mt-2 text-xs font-bold text-sub">{t('settings.version')} {VERSION}</p>
         <p className="mt-2 rounded-2xl bg-surface2 px-3 py-2 text-xs font-bold text-sub">{t('err.pwaHint')}</p>
       </Card>
+
+      <ShareSheet open={shareOpen} onClose={() => setShareOpen(false)} />
 
       <ConfirmDialog
         open={resetOpen}

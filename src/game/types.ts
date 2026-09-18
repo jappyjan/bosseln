@@ -125,9 +125,13 @@ export interface Prefs {
   lang?: Lang
   theme: 'light' | 'dark'
   textScale: 'normal' | 'large'
-  relays: string[]
+  /** MQTT brokers (wss), tried in order */
+  brokers: string[]
+  /** the shared game code */
   syncRoom?: string
   syncEnabled: boolean
+  /** stable id of this device, used for presence */
+  deviceId: string
 }
 
 /** Derived, read-only view of a team. */

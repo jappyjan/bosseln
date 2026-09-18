@@ -348,7 +348,7 @@ export const de = {
     'Wirklich alles löschen? Teams, Würfe, Strafen und Verlauf sind danach weg.',
   'settings.sync': 'Geräte-Sync',
   'settings.syncHint':
-    'Optional: gleiches Spiel auf mehreren Handys ansehen. Offline bleiben die Daten lokal und werden später nachgetragen.',
+    'Code an die anderen schicken: dann sieht jedes Handy dasselbe Spiel, live. Offline bleibt alles lokal und gleicht sich später ab.',
   'settings.syncEnable': 'Sync aktivieren',
   'settings.syncRoom': 'Raumcode',
   'settings.syncRoomHint': 'Gleicher Code auf allen Geräten = gleiches Spiel.',
@@ -365,7 +365,7 @@ export const de = {
   'settings.syncWrongGame':
     'Achtung: In diesem Raum läuft ein anderes Spiel ({name}). Nimm einen anderen Code.',
   'settings.syncPublicHint':
-    'Die öffentlichen Relais sind frei zugänglich. Also nur Namen eintragen, die ihr teilen wollt.',
+    'Die öffentlichen Broker sind offen zugänglich — also nur Namen eintragen, die ihr teilen wollt.',
   'settings.relays': 'Relais-Server',
   'settings.relaysHint': 'Komma-getrennt. Standard sind zwei freie Gun-Relais.',
   'settings.about': 'Über die App',
@@ -418,6 +418,42 @@ export const de = {
   'toast.throwAdded': '{team}: Wurf {n}',
   'toast.playerTurn': 'Nächster: {name}',
   'toast.noPenaltyLeft': 'Keine Strafe zum Streichen',
+
+  /* ------------------------------------------------- sharing and joining */
+
+  'setup.modeNew': 'Neues Spiel',
+  'setup.modeJoin': 'Beitreten',
+  'setup.joinHint': 'Code eingeben, den du bekommen hast — du siehst dann genau dasselbe Spiel.',
+  'setup.joinInvalid': 'Der Code ist zu kurz (mindestens 4 Zeichen).',
+  'join.title': 'Beitritt zu {code}',
+  'join.waiting': 'Suche das Spiel auf dem Server …',
+  'join.timeout': 'Kein Spielstand gefunden. Prüfe den Code — oder starte selbst ein Spiel.',
+  'share.title': 'Spiel teilen',
+  'share.subtitle': 'Gleicher Code = gleiches Spiel.',
+  'share.code': 'Spiel-Code',
+  'share.devices': '{n} Gerät verbunden',
+  'share.devicesPlural': '{n} Geräte verbunden',
+  'share.waiting': 'Warte auf Mitspieler …',
+  'share.send': 'Link senden',
+  'share.copyCode': 'Code kopieren',
+  'share.copyLink': 'Link kopieren',
+  'share.enable': 'Teilen aktivieren',
+  'share.enableHint':
+    'Erzeugt einen Code. Wer ihn eingibt, sieht dasselbe Spiel auf dem eigenen Handy — live.',
+  'share.stop': 'Teilen beenden',
+  'share.localHint':
+    'Ohne Empfang läuft alles lokal weiter; sobald wieder Netz da ist, gleicht sich alles ab.',
+  'share.message': 'Boßeln: Spiel-Code {code}\n{link}\nCode eingeben → gleicher Punktezettel auf allen Handys.',
+  'settings.brokers': 'MQTT-Broker',
+  'settings.brokersHint': 'wss://-Adressen, mit Komma getrennt. Der erste erreichbare wird benutzt.',
+  'settings.syncBroker': 'Broker',
+  'settings.syncDevices': 'Geräte am Spiel',
+  'toast.joining': 'Beitritt zu {code} …',
+  'toast.sharing': 'Teilen aktiv — Code {code}',
+  'toast.sharingOff': 'Teilen beendet',
+  'toast.gameAdopted': 'Spielstand übernommen',
+  'toast.codeCopied': 'Code kopiert',
+  'toast.linkCopied': 'Link kopiert',
 
   'err.title': 'Etwas ist schiefgelaufen',
   'err.reload': 'App neu laden',

@@ -13,7 +13,7 @@ import { useStore } from '../state/store'
 
 export function SetupScreen() {
   const { t, lang, setLang, manual } = useI18n()
-  const { startGame, prefs, setPrefs, haptic } = useStore()
+  const { startGame, prefs, setPrefs, haptic, joinGame } = useStore()
 
   const [name, setName] = useState(() => t('setup.defaultGameName'))
   const [route, setRoute] = useState('')
@@ -31,6 +31,7 @@ export function SetupScreen() {
     points: 1,
     drink: false,
   })
+  const [joinCode, setJoinCode] = useState('')
 
   const setCount = (n: number) => {
     setTeams((cur) => {
@@ -101,6 +102,33 @@ export function SetupScreen() {
             value={route}
             onChange={(e) => setRoute(e.target.value)}
           />
+        </div>
+      </Card>
+
+      <Card className="mb-1 border-2 border-emerald-600 bg-emerald-50/60">
+        <h2 className="flex items-center gap-2 text-base font-black text-emerald-950">
+          🔗 {t('setup.modeJoin')}
+        </h2>
+        <p className="mt-1 text-xs font-semibold text-emerald-950/80">{t('setup.joinHint')}</p>
+        <div className="mt-3 flex gap-2">
+          <input
+            value={joinCode}
+            onChange={(e) => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
+            placeholder="ABC123"
+            aria-label={t('share.code')}
+            autoCapitalize="characters"
+            autoComplete="off"
+            spellCheck={false}
+            className="min-h-[56px] w-full flex-1 rounded-2xl border-2 border-emerald-600 bg-surface px-3 text-center font-mono text-2xl font-black tracking-[0.2em] outline-none focus:border-emerald-700"
+          />
+          <Button
+            variant="success"
+            className="min-h-[56px] shrink-0"
+            disabled={joinCode.replace(/[^A-Z0-9]/g, '').length < 4}
+            onClick={() => joinGame(joinCode)}
+          >
+            {t('setup.modeJoin')}
+          </Button>
         </div>
       </Card>
 

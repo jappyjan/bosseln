@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button, Card, ConfirmDialog, FlashNumber, cn } from '../components/ui'
 import { CardSheet, DrinkSheet, JokerDialog, PenaltySheet, PlayerSheet } from '../components/sheets'
+import { ShareChip, ShareSheet } from '../components/ShareSheet'
 import { places, scoreOf } from '../game/engine'
 import { useI18n } from '../i18n'
 import { useStore } from '../state/store'
@@ -28,6 +29,7 @@ export function ScoreScreen() {
   const [card, setCard] = useState<PartyCard | null>(null)
   const [jokerOpen, setJokerOpen] = useState(false)
   const [finishOpen, setFinishOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
 
   if (!game) return null
 
@@ -67,6 +69,12 @@ export function ScoreScreen() {
               : ''}
           </p>
         </div>
+        <ShareChip
+          onClick={() => {
+            haptic()
+            setShareOpen(true)
+          }}
+        />
         <Button
           variant="neutral"
           size="sm"
@@ -165,6 +173,7 @@ export function ScoreScreen() {
       <DrinkSheet open={sheet === 'drink'} onClose={() => setSheet(null)} teamId={activeTeam} />
       <PlayerSheet open={sheet === 'player'} onClose={() => setSheet(null)} teamId={activeTeam} />
       <CardSheet open={sheet === 'card'} card={card} teamId={activeTeam} onClose={() => setSheet(null)} />
+      <ShareSheet open={shareOpen} onClose={() => setShareOpen(false)} />
       <JokerDialog
         open={jokerOpen}
         teamId={game.birthdayTeamId ?? ''}
