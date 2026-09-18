@@ -4,6 +4,8 @@ Mobile-first PWA (React + TypeScript + Vite + Tailwind) für eine Geburtstagsrun
 Boßeln. Ersetzt den Papierzettel, ist gleichzeitig Regelwerk und Partyspiel-Begleiter
 und funktioniert **komplett offline** nach dem ersten Laden. Kein Backend, kein Konto.
 
+**Live:** https://birthday.apps.janjaap.de (Coolify, statisches nginx-Hosting)
+
 ## Schnellstart
 
 ```bash
