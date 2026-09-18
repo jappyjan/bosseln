@@ -125,6 +125,7 @@ node layout.mjs               # horizontaler Überlauf + Touch-Targets ≥ 44px
 node offline.mjs              # Server vorher stoppen: beweist Start aus dem SW-Cache
 node live-offline.mjs         # Flugmodus gegen die Live-Domain (Service Worker)
 node sync-share.mjs           # zwei Geräte: Code teilen, beitreten, live mitzählen,
+node sync-debug.mjs           # Broker-Erreichbarkeit + Sync-Panel auf der Live-Domain
 node mqtt-broker-probe.mjs    # welcher öffentliche Broker trägt retained + live
 ```
 
