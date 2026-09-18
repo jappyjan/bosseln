@@ -8,3 +8,4 @@ qa/node_modules
 qa/profile
 qa/shots
 qa/report.json
+*.tsbuildinfo
