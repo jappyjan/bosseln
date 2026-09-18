@@ -1,0 +1,14 @@
+{
+  "name": "bosseln-qa",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Playwright acceptance run for the Boßeln PWA (screenshots + assertions)",
+  "scripts": {
+    "qa": "node qa.mjs",
+    "offline": "node offline.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.49.1"
+  }
+}

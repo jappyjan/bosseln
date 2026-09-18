@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------ theme
+   Light is tuned for direct sunlight: near-white surface, near-black text,
+   thick borders, high accent saturation. Dark is for the evening part.
+------------------------------------------------------------------------- */
+:root {
+  --ink: 12 17 29;
+  --sub: 84 94 114;
+  --surface: 255 255 255;
+  --surface2: 241 243 249;
+  --line: 206 212 226;
+  --brand: 29 78 216;
+  --flash: 29 78 216;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+}
+
+[data-theme='dark'] {
+  --ink: 238 243 255;
+  --sub: 150 162 186;
+  --surface: 17 23 38;
+  --surface2: 11 18 32;
+  --line: 46 58 84;
+  --brand: 96 165 250;
+  --flash: 96 165 250;
+}
+
+html {
+  background: rgb(var(--surface2));
+  -webkit-text-size-adjust: 100%;
+}
+
+html[data-text='large'] {
+  font-size: 18.5px;
+}
+
+body {
+  margin: 0;
+  background: rgb(var(--surface2));
+  color: rgb(var(--ink));
+  font-weight: 500;
+  overscroll-behavior-y: none;
+  font-feature-settings: 'tnum' 1;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+[role='button'] {
+  touch-action: manipulation;
+  user-select: none;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+@layer utilities {
+  .pb-safe {
+    padding-bottom: calc(var(--safe-b) + 0.25rem);
+  }
+  .pt-safe {
+    padding-top: calc(var(--safe-t) + 0.5rem);
+  }
+  .mb-safe {
+    margin-bottom: var(--safe-b);
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .grid-cols-40 {
+    grid-template-columns: repeat(40, minmax(0, 1fr));
+  }
+}
+
+/* numeric columns should never jump around while tapping */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.team-glow {
+  box-shadow:
+    inset 4px 0 0 var(--team-color, rgb(var(--brand))),
+    0 1px 2px rgb(0 0 0 / 0.06),
+    0 10px 26px -18px rgb(0 0 0 / 0.5);
+}
